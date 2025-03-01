@@ -16,29 +16,7 @@ using std::chrono_literals::operator""s;
 using std::chrono_literals::operator""ms;
 
 using FileID = std::uint32_t;
-using QuadID = std::uint32_t;
-
-constexpr int kQuadBase = 63;
-constexpr int kNumQuads = kQuadBase * kQuadBase * kQuadBase * kQuadBase;
-
-std::optional<QuadID> ParseQuadDigit(char c) {
-  if ('a' <= c && c <= 'z') return QuadID(c - 'a');
-  if ('A' <= c && c <= 'Z') return QuadID(c - 'A' + 26);
-  if ('0' <= c && c <= '9') return QuadID(c - '0' + 52);
-  if (c == '_') return QuadID(62);
-  return std::nullopt;
-}
-
-std::optional<QuadID> ParseQuad(std::string_view quad) {
-  assert(quad.size() == 4);
-  QuadID id = 0;
-  for (int i = 0; i < 4; i++) {
-    auto digit = ParseQuadDigit(quad[i]);
-    if (!digit) return std::nullopt;
-    id = kQuadBase * id + *digit;
-  }
-  return id;
-}
+constexpr int kNumSnippets = 65536;  // Matches the range of Hash().
 
 class Database {
  public:
@@ -46,7 +24,7 @@ class Database {
     std::unique_lock lock(mutex_);
     const auto start = clock::now();
     files_.clear();
-    quads_.clear();
+    snippets_.clear();
 
     int num_files;
     std::ifstream in(index_file);
@@ -59,11 +37,11 @@ class Database {
       files_.push_back(std::move(file));
     }
 
-    quads_.resize(kNumQuads);
-    for (int i = 0; i < kNumQuads; i++) {
+    snippets_.resize(kNumSnippets);
+    for (int i = 0; i < kNumSnippets; i++) {
       int num_entries;
       in >> num_entries;
-      auto& list = quads_[i];
+      auto& list = snippets_[i];
       list.reserve(num_entries);
       for (int j = 0; j < num_entries; j++) {
         FileID file;
@@ -83,9 +61,9 @@ class Database {
     for (const std::string& file : files_) {
       out << std::quoted(file) << '\n';
     }
-    for (int i = 0; i < kNumQuads; i++) {
-      out << quads_[i].size() << '\n';
-      for (FileID f : quads_[i]) out << '\t' << f;
+    for (int i = 0; i < kNumSnippets; i++) {
+      out << snippets_[i].size() << '\n';
+      for (FileID f : snippets_[i]) out << '\t' << f;
       out << '\n';
     }
     const auto end = clock::now();
@@ -111,8 +89,7 @@ class Database {
       if (current >= paths.size()) break;
       std::println("{}... ({}/{})",
                    paths[current].string(), current, paths.size());
-      using std::chrono_literals::operator""s;
-      std::this_thread::sleep_for(1s);
+      std::this_thread::sleep_for(100ms);
     }
   }
 
@@ -123,15 +100,14 @@ class Database {
     const std::string contents(std::istreambuf_iterator<char>(stream), {});
     if (!stream.good()) return false;
 
-    std::vector<bool> seen(kNumQuads);
+    std::vector<bool> seen(kNumSnippets);
     for (auto quad : std::ranges::views::slide(contents, 4)) {
-      const std::optional<QuadID> id = ParseQuad(std::string_view(quad));
-      if (id) seen[*id] = true;
+      seen[Hash(std::string_view(quad))] = true;
     }
 
     std::unique_lock lock(mutex_);
-    for (QuadID id = 0; id < kNumQuads; id++) {
-      if (seen[id]) quads_[id].push_back(file_id);
+    for (int id = 0; id < kNumSnippets; id++) {
+      if (seen[id]) snippets_[id].push_back(file_id);
     }
 
     return true;
@@ -169,6 +145,12 @@ class Database {
   }
 
  private:
+  static int Hash(std::string_view term) {
+    std::uint16_t hash = 17994;
+    for (char c : term) hash = hash * 37 + c;
+    return hash;
+  }
+
   FileID AddFile(std::string_view name) {
     std::unique_lock lock(mutex_);
     const FileID id = (FileID)files_.size();
@@ -184,18 +166,14 @@ class Database {
     bool first = true;
     std::vector<FileID> candidates;
     for (auto quad : std::ranges::views::slide(term, 4)) {
-      const std::optional<QuadID> id = ParseQuad(std::string_view(quad));
-      if (!id) {
-        std::cerr << "Bad search term.\n";
-        return {};
-      }
+      const int id = Hash(std::string_view(quad));
       if (first) {
         first = false;
-        candidates = quads_[*id];
+        candidates = snippets_[id];
       } else {
         int i = 0, j = 0;
         const int n = (int)candidates.size();
-        for (FileID f : quads_[*id]) {
+        for (FileID f : snippets_[id]) {
           if (i == n) break;
           while (i < n && candidates[i] < f) i++;
           if (i < n && candidates[i] == f) candidates[j++] = candidates[i++];
@@ -207,14 +185,14 @@ class Database {
   }
 
   mutable std::mutex mutex_;
-  std::vector<std::vector<FileID>> quads_ =
-      std::vector<std::vector<FileID>>(kNumQuads);
+  std::vector<std::vector<FileID>> snippets_ =
+      std::vector<std::vector<FileID>>(kNumSnippets);
   std::vector<std::string> files_;
 };
 
 void BuildIndex() {
   Database database;
-  const std::set<fs::path> allowed = {".cpp"};
+  const std::set<fs::path> allowed = {".cc", ".h", ".cpp"};
   std::vector<fs::path> files;
   std::println("Discovering files...");
   for (const fs::path& path : fs::recursive_directory_iterator(
@@ -238,7 +216,7 @@ int main(int argc, char* argv[]) {
   while (true) {
     std::print("> ");
     std::string term;
-    std::cin >> term;
+    std::getline(std::cin, term);
     database.Search(term);
   }
   return 0;
