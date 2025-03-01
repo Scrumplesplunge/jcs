@@ -16,58 +16,95 @@ using std::chrono_literals::operator""s;
 using std::chrono_literals::operator""ms;
 
 using FileID = std::uint32_t;
-constexpr int kNumSnippets = 65536;  // Matches the range of Hash().
+constexpr int kNumSnippets = 1 << 16;  // Matches the range of Hash().
+
+template <typename T>
+struct Serial;
+
+template <>
+struct Serial<std::uint32_t> {
+  static std::uint32_t Read(std::istream& in) {
+    char bytes[4];
+    in.read(bytes, 4);
+    return std::uint32_t(std::uint8_t(bytes[0])) |
+           std::uint32_t(std::uint8_t(bytes[1])) << 8 |
+           std::uint32_t(std::uint8_t(bytes[2])) << 16 |
+           std::uint32_t(std::uint8_t(bytes[3])) << 24;
+  }
+
+  static void Write(std::ostream& out, std::uint32_t x) {
+    char bytes[4];
+    bytes[0] = std::uint8_t(x);
+    bytes[1] = std::uint8_t(x >> 8);
+    bytes[2] = std::uint8_t(x >> 16);
+    bytes[3] = std::uint8_t(x >> 24);
+    out.write(bytes, 4);
+  }
+};
+
+template <>
+struct Serial<std::string> {
+  static std::string Read(std::istream& in) {
+    const std::uint32_t length = Serial<std::uint32_t>::Read(in);
+    std::string value(length, '\0');
+    in.read(value.data(), length);
+    return value;
+  }
+
+  static void Write(std::ostream& out, std::string_view s) {
+    Serial<std::uint32_t>::Write(out, (std::uint32_t)s.size());
+    out.write(s.data(), s.size());
+  }
+};
+
+template <typename T>
+struct Serial<T[]> {
+  static std::vector<T> Read(std::istream& in) {
+    const auto length = Serial<std::uint32_t>::Read(in);
+    std::vector<T> values;
+    values.reserve(length);
+    for (std::uint32_t i = 0; i < length; i++) {
+      values.push_back(Serial<T>::Read(in));
+    }
+    return values;
+  }
+
+  static void Write(std::ostream& out, std::span<const T> values) {
+    Serial<std::uint32_t>::Write(out, (std::uint32_t)values.size());
+    for (const T& value : values) Serial<T>::Write(out, value);
+  }
+};
 
 class Database {
  public:
-  void Load(const fs::path& index_file) {
-    std::unique_lock lock(mutex_);
-    const auto start = clock::now();
-    files_.clear();
-    snippets_.clear();
-
-    int num_files;
-    std::ifstream in(index_file);
-    in.exceptions(std::ifstream::badbit);
-    in >> num_files;
-    files_.reserve(num_files);
-    for (int i = 0; i < num_files; i++) {
-      std::string file;
-      in >> std::quoted(file);
-      files_.push_back(std::move(file));
-    }
-
-    snippets_.resize(kNumSnippets);
-    for (int i = 0; i < kNumSnippets; i++) {
-      int num_entries;
-      in >> num_entries;
-      auto& list = snippets_[i];
-      list.reserve(num_entries);
-      for (int j = 0; j < num_entries; j++) {
-        FileID file;
-        in >> file;
-        list.push_back(file);
-      }
-    }
-    const auto end = clock::now();
-    std::println("Loaded in {}ms", (end - start) / 1ms);
-  }
-
   void Save(const fs::path& index_file) const {
     std::unique_lock lock(mutex_);
     const auto start = clock::now();
-    std::ofstream out(index_file);
-    out << files_.size() << '\n';
-    for (const std::string& file : files_) {
-      out << std::quoted(file) << '\n';
-    }
+    std::ofstream out(index_file, std::ios::binary);
+    out.exceptions(std::ostream::failbit | std::ostream::badbit);
+    Serial<std::string[]>::Write(out, files_);
+    std::size_t refs = 0;
     for (int i = 0; i < kNumSnippets; i++) {
-      out << snippets_[i].size() << '\n';
-      for (FileID f : snippets_[i]) out << '\t' << f;
-      out << '\n';
+      Serial<std::uint32_t[]>::Write(out, snippets_[i]);
+      refs += snippets_[i].size();
     }
     const auto end = clock::now();
-    std::println("Saved in {}ms", (end - start) / 1ms);
+    std::println("Saved {} refs in {}ms", refs, (end - start) / 1ms);
+  }
+
+  void Load(const fs::path& index_file) {
+    std::unique_lock lock(mutex_);
+    const auto start = clock::now();
+    std::ifstream in(index_file, std::ios::binary);
+    in.exceptions(std::ostream::failbit | std::ostream::badbit);
+    files_ = Serial<std::string[]>::Read(in);
+    snippets_.clear();
+    snippets_.resize(kNumSnippets);
+    for (int i = 0; i < kNumSnippets; i++) {
+      snippets_[i] = Serial<std::uint32_t[]>::Read(in);
+    }
+    const auto end = clock::now();
+    std::println("Loaded in {}ms", (end - start) / 1ms);
   }
 
   void IndexAll(const std::span<const fs::path> paths) {
@@ -89,13 +126,11 @@ class Database {
       if (current >= paths.size()) break;
       std::println("{}... ({}/{})",
                    paths[current].string(), current, paths.size());
-      std::this_thread::sleep_for(100ms);
+      std::this_thread::sleep_for(1s);
     }
   }
 
   bool Index(const fs::path& file) {
-    const FileID file_id = AddFile(fs::canonical(file).string());
-
     std::ifstream stream(file);
     const std::string contents(std::istreambuf_iterator<char>(stream), {});
     if (!stream.good()) return false;
@@ -106,6 +141,9 @@ class Database {
     }
 
     std::unique_lock lock(mutex_);
+    const FileID file_id = (FileID)files_.size();
+    files_.emplace_back(fs::canonical(file).string());
+
     for (int id = 0; id < kNumSnippets; id++) {
       if (seen[id]) snippets_[id].push_back(file_id);
     }
@@ -146,16 +184,9 @@ class Database {
 
  private:
   static int Hash(std::string_view term) {
-    std::uint16_t hash = 17994;
-    for (char c : term) hash = hash * 37 + c;
-    return hash;
-  }
-
-  FileID AddFile(std::string_view name) {
-    std::unique_lock lock(mutex_);
-    const FileID id = (FileID)files_.size();
-    files_.emplace_back(name);
-    return id;
+    std::uint32_t hash = 0xdeadbeef;
+    for (char c : term) hash = hash * 109 + c;
+    return hash % kNumSnippets;
   }
 
   std::vector<FileID> Candidates(std::string_view term) {
@@ -181,6 +212,7 @@ class Database {
         candidates.resize(j);
       }
     }
+    std::println("{} candidate files.", candidates.size());
     return candidates;
   }
 
