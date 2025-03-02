@@ -97,6 +97,9 @@ class Database {
     return true;
   }
 
+  static constexpr int kMaxMatchesInFile = 5;
+  static constexpr int kMaxMatchedFiles = 5;
+
   void Search(std::string_view term) {
     std::unique_lock lock(mutex_);
     int matched_files = 0;
@@ -109,20 +112,25 @@ class Database {
                   << files_[file] << '\n';
         continue;
       }
-      int matches = 0;
+      int matches_in_file = 0;
       int line_number = 0;
       for (auto line : std::ranges::views::split(contents, '\n')) {
         line_number++;
         const std::string_view line_contents(line);
-        const auto i = line_contents.find(term);
-        if (i == line_contents.npos) continue;
-        matches++;
-        std::println("{}:{}:{}: {}",
-                     files_[file], line_number, i + 1, line_contents);
-      }
-      if (matches) {
-        matched_lines += matches;
-        matched_files++;
+        if (!line_contents.contains(term)) continue;
+        if (matches_in_file == 0) matched_files++;
+        matches_in_file++;
+        matched_lines++;
+        if (matches_in_file == 1 && matched_files == kMaxMatchedFiles) {
+          std::println("...");
+        } else if (matched_files < kMaxMatchedFiles) {
+          if (matches_in_file == 1) std::println("{}", files_[file]);
+          if (matches_in_file == kMaxMatchesInFile) {
+            std::println("          ...");
+          } else if (matches_in_file < kMaxMatchesInFile) {
+            std::println("  {:4d}  {}", line_number, line_contents);
+          }
+        }
       }
     }
     std::println("{} matched lines across {} files.", matched_lines, matched_files);
