@@ -8,12 +8,20 @@
 #include <string_view>
 
 int main(int argc, char* argv[]) {
-  if (argc == 2 && argv[1] == std::string_view("--index")) {
-    jcs::Index index = jcs::Build();
-    index.Save(".index");
+  if (argc != 2) {
+    std::println(stderr, "Usage: jcs [--index|--interactive|<search>]");
+    return 1;
+  }
+  const std::string_view arg = argv[1];
+  if (arg == std::string_view("--index")) {
+    jcs::Build(".index");
     return 0;
   }
   jcs::Index index(".index");
+  if (arg != "--interactive") {
+    index.Search(arg);
+    return 0;
+  }
   while (true) {
     std::print("> ");
     std::string term;

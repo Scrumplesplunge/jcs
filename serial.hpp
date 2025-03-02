@@ -8,45 +8,32 @@
 
 namespace jcs {
 
-template <typename T>
-struct Serial;
+class Writer {
+ public:
+  explicit Writer(std::string& output) : data_(output) {}
 
-template <typename T>
-concept Serializable = requires (
-    std::istream& in, std::ostream& out, const T& x) {
-  { Serial<T>::Read(in) } -> std::convertible_to<T>;
-  { Serial<T>::Write(out, x) };
+  void WriteUint8(std::uint8_t x);
+  void WriteUint16(std::uint16_t x);
+  void WriteUint32(std::uint32_t x);
+  void WriteUint64(std::uint64_t x);
+
+  // Use a variable-length little-endian encoding where the lowest byte will
+  // end with n ones to indicate n additional bytes, e.g.
+  //       1 -> 0x01
+  //     127 -> 0xFE
+  //     128 -> 0x01 0x01
+  //   16383 -> 0xFD 0xFF
+  //   16384 -> 0x03 0x00 0x01
+  void WriteVarUint64(std::uint64_t x);
+
+  void Write(std::string_view bytes);
+
+ private:
+  std::string& data_;
 };
 
-template <>
-struct Serial<std::uint32_t> {
-  static std::uint32_t Read(std::istream& in);
-  static void Write(std::ostream& out, std::uint32_t x);
-};
-
-template <>
-struct Serial<std::string> {
-  static std::string Read(std::istream& in);
-  static void Write(std::ostream& out, std::string_view s);
-};
-
-template <Serializable T>
-struct Serial<T[]> {
-  static std::vector<T> Read(std::istream& in) {
-    const auto length = Serial<std::uint32_t>::Read(in);
-    std::vector<T> values;
-    values.reserve(length);
-    for (std::uint32_t i = 0; i < length; i++) {
-      values.push_back(Serial<T>::Read(in));
-    }
-    return values;
-  }
-
-  static void Write(std::ostream& out, std::span<const T> values) {
-    Serial<std::uint32_t>::Write(out, (std::uint32_t)values.size());
-    for (const T& value : values) Serial<T>::Write(out, value);
-  }
-};
+const char* ReadUint64(const char* in, std::uint64_t& x);
+const char* ReadVarUint64(const char* in, std::uint64_t& x);
 
 }  // namespace jcs
 

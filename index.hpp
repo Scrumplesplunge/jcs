@@ -3,6 +3,7 @@
 
 #include "buffer.hpp"
 
+#include <generator>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,11 +21,8 @@ class Index {
 
   Index() = default;
   explicit Index(std::string_view path);
-  explicit Index(std::vector<std::string> files,
-                 std::vector<std::vector<FileID>> snippets) noexcept;
 
   void Load(std::string_view path);
-  void Save(std::string_view path) const;
 
   // Not copyable.
   Index(const Index&) = delete;
@@ -40,12 +38,16 @@ class Index {
  private:
   std::vector<FileID> Candidates(std::string_view term) const noexcept;
 
-  std::vector<std::vector<FileID>> snippets_ =
-      std::vector<std::vector<FileID>>(kNumSnippets);
-  std::vector<std::string> files_;
+  std::string_view GetFileName(FileID id) const;
+  std::generator<FileID> GetSnippets(int id) const;
+
+  FileReadBuffer buffer_;
+  std::span<const std::uint64_t> snippets_;
+  std::span<const std::uint64_t> files_;
+  std::span<const char> data_;
 };
 
-Index Build();
+void Build(std::string_view path);
 
 }  // namespace jcs
 

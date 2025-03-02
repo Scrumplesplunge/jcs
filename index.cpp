@@ -70,7 +70,36 @@ class Indexer {
     std::println("{:7d}/{} done.", files.size(), files.size());
   }
 
-  Index Build() && { return Index(std::move(files_), std::move(snippets_)); }
+  void Save(std::string_view path) const {
+    // Variable-length data.
+    std::string data;
+    // filename_offsets[i] is the offset of files[i] in data.
+    std::vector<std::uint64_t> filename_offsets;
+    // snippets_offsets[i] is the offset of snippets[i] in data.
+    std::vector<std::uint64_t> snippets_offsets;
+    {
+      Writer writer(data);
+      for (std::string_view file : files_) {
+        filename_offsets.push_back(data.size());
+        writer.WriteVarUint64(file.size());
+        writer.Write(file);
+      }
+      for (std::span<const Index::FileID> list : snippets_) {
+        snippets_offsets.push_back(data.size());
+        writer.WriteVarUint64(list.size());
+        for (Index::FileID file : list) writer.WriteVarUint64(file);
+      }
+    }
+    std::string tables;
+    Writer writer(tables);
+    for (std::uint64_t offset : snippets_offsets) writer.WriteUint64(offset);
+    writer.WriteUint64(std::uint32_t(filename_offsets.size()));
+    for (std::uint64_t offset : filename_offsets) writer.WriteUint64(offset);
+    std::ofstream out{std::string(path), std::ios::binary};
+    out.exceptions(std::ostream::failbit | std::ostream::badbit);
+    out.write(tables.data(), tables.size());
+    out.write(data.data(), data.size());
+  }
 
  private:
   static std::vector<fs::path> DiscoverFiles() {
@@ -85,8 +114,7 @@ class Indexer {
 
   mutable std::mutex mutex_;
   std::vector<std::string> files_;
-  std::vector<std::vector<Index::FileID>> snippets_
-      = std::vector<std::vector<Index::FileID>>(kNumSnippets);
+  std::array<std::vector<Index::FileID>, kNumSnippets> snippets_;
 };
 
 }  // namespace
@@ -99,37 +127,19 @@ int Hash(std::string_view term) noexcept {
 
 Index::Index(std::string_view path) { Load(path); }
 
-Index::Index(std::vector<std::string> files,
-             std::vector<std::vector<FileID>> snippets) noexcept
-    : files_(std::move(files)),
-      snippets_(std::move(snippets)) {}
-
 void Index::Load(std::string_view path) {
-  const auto start = Clock::now();
-  std::ifstream in(std::string(path), std::ios::binary);
-  in.exceptions(std::ostream::failbit | std::ostream::badbit);
-  files_ = Serial<std::string[]>::Read(in);
-  snippets_.clear();
-  snippets_.resize(kNumSnippets);
-  for (int i = 0; i < kNumSnippets; i++) {
-    snippets_[i] = Serial<std::uint32_t[]>::Read(in);
-  }
-  const auto end = Clock::now();
-  std::println("Loaded in {}ms", (end - start) / 1ms);
-}
-
-void Index::Save(std::string_view path) const {
-  const auto start = Clock::now();
-  std::ofstream out(std::string(path), std::ios::binary);
-  out.exceptions(std::ostream::failbit | std::ostream::badbit);
-  Serial<std::string[]>::Write(out, files_);
-  std::size_t refs = 0;
-  for (int i = 0; i < kNumSnippets; i++) {
-    Serial<std::uint32_t[]>::Write(out, snippets_[i]);
-    refs += snippets_[i].size();
-  }
-  const auto end = Clock::now();
-  std::println("Saved {} refs in {}ms", refs, (end - start) / 1ms);
+  buffer_ = FileReadBuffer(path);
+  const std::span<const char> contents = buffer_.Contents();
+  const char* p = contents.data();
+  snippets_ = std::span<const std::uint64_t>(
+      reinterpret_cast<const std::uint64_t*>(p), kNumSnippets);
+  p += std::as_bytes(snippets_).size();
+  std::uint64_t num_files;
+  p = ReadUint64(p, num_files);
+  files_ = std::span<const std::uint64_t>(
+      reinterpret_cast<const std::uint64_t*>(p), num_files);
+  p += std::as_bytes(files_).size();
+  data_ = contents.subspan(p - contents.data());
 }
 
 void Index::Search(std::string_view term) const noexcept {
@@ -138,7 +148,7 @@ void Index::Search(std::string_view term) const noexcept {
   for (FileID file : Candidates(term)) {
     FileReadBuffer buffer;
     try {
-      buffer = FileReadBuffer(files_[file]);
+      buffer = FileReadBuffer(GetFileName(file));
     } catch (std::exception&) {}
     int matches_in_file = 0;
     int line_number = 0;
@@ -152,7 +162,7 @@ void Index::Search(std::string_view term) const noexcept {
       if (matches_in_file == 1 && matched_files == kMaxMatchedFiles + 1) {
         std::println("...");
       } else if (matched_files <= kMaxMatchedFiles) {
-        if (matches_in_file == 1) std::println("{}", files_[file]);
+        if (matches_in_file == 1) std::println("{}", GetFileName(file));
         if (matches_in_file == kMaxMatchesInFile + 1) {
           std::println("          ...");
         } else if (matches_in_file <= kMaxMatchesInFile) {
@@ -176,11 +186,11 @@ std::vector<Index::FileID> Index::Candidates(
     const int id = Hash(std::string_view(quad));
     if (first) {
       first = false;
-      candidates = snippets_[id];
+      candidates.assign_range(GetSnippets(id));
     } else {
       int i = 0, j = 0;
       const int n = (int)candidates.size();
-      for (FileID f : snippets_[id]) {
+      for (FileID f : GetSnippets(id)) {
         if (i == n) break;
         while (i < n && candidates[i] < f) i++;
         if (i < n && candidates[i] == f) candidates[j++] = candidates[i++];
@@ -192,10 +202,28 @@ std::vector<Index::FileID> Index::Candidates(
   return candidates;
 }
 
-Index Build() {
+std::string_view Index::GetFileName(FileID id) const {
+  const char* p = data_.data() + files_[id];
+  std::uint64_t length;
+  p = ReadVarUint64(p, length);
+  return std::string_view(p, length);
+}
+
+std::generator<Index::FileID> Index::GetSnippets(int id) const {
+  const char* p = data_.data() + snippets_[id];
+  std::uint64_t length;
+  p = ReadVarUint64(p, length);
+  for (std::uint64_t i = 0; i < length; i++) {
+    std::uint64_t value;
+    p = ReadVarUint64(p, value);
+    co_yield Index::FileID(value);
+  }
+}
+
+void Build(std::string_view path) {
   auto indexer = std::make_unique<Indexer>();
   indexer->IndexAll();
-  return std::move(*indexer).Build();
+  indexer->Save(path);
 }
 
 }  // namespace jcs
