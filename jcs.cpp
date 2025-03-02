@@ -82,7 +82,7 @@ class Database {
     if (!stream.good()) return false;
 
     std::vector<bool> seen(kNumSnippets);
-    for (auto quad : std::ranges::views::slide(contents, 4)) {
+    for (auto quad : std::ranges::views::slide(contents, 3)) {
       seen[Hash(std::string_view(quad))] = true;
     }
 
@@ -137,12 +137,12 @@ class Database {
 
   std::vector<FileID> Candidates(std::string_view term) {
     if (term.size() < 4) {
-      std::cerr << "Minimum search term length is 4 characters.\n";
+      std::cerr << "Minimum search term length is 3 characters.\n";
       return {};
     }
     bool first = true;
     std::vector<FileID> candidates;
-    for (auto quad : std::ranges::views::slide(term, 4)) {
+    for (auto quad : std::ranges::views::slide(term, 3)) {
       const int id = Hash(std::string_view(quad));
       if (first) {
         first = false;
