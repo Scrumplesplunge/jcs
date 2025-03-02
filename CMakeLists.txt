@@ -11,7 +11,7 @@ endif()
 
 add_compile_options("/FC")
 
-project ("simple-tags")
+project("jcs")
 
 add_library(buffer "buffer.cpp" "buffer.hpp")
 
