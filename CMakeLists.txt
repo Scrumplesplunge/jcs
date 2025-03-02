@@ -13,10 +13,11 @@ add_compile_options("/FC")
 
 project ("simple-tags")
 
-find_package(asio CONFIG REQUIRED)
-
 add_library(serial "serial.cpp" "serial.hpp")
+
+add_library(index "index.cpp" "index.hpp")
+target_link_libraries(index serial)
 
 # Add source to this project's executable.
 add_executable(jcs "jcs.cpp")
-target_link_libraries(jcs serial)
+target_link_libraries(jcs index)
