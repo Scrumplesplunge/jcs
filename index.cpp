@@ -157,7 +157,7 @@ std::generator<Index::SearchResult> Index::Search(
       if (column == line_contents.npos) continue;
       co_yield {.file_name = GetFileName(file),
                 .line = line_number,
-                .column = int(column),
+                .column = int(column + 1),
                 .line_contents = line_contents};
     }
   }
