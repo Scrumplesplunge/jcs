@@ -1,7 +1,6 @@
 ﻿#include "index.hpp"
 
-#include "serial.hpp"
-
+#include <filesystem>
 #include <iostream>
 #include <print>
 #include <string>
@@ -17,7 +16,18 @@ int main(int argc, char* argv[]) {
     jcs::Build(".index");
     return 0;
   }
-  jcs::Index index(".index");
+  // Search for an index file.
+  namespace fs = std::filesystem;
+  fs::path directory = fs::current_path();
+  const fs::path root = directory.root_path();
+  while (!fs::exists(directory / ".index")) {
+    if (directory == root) {
+      std::println(stderr, "No index found. Generate one with `jcs --index`.");
+      return 1;
+    }
+    directory = directory.parent_path();
+  }
+  jcs::Index index((directory / ".index").string());
   if (arg != "--interactive") {
     for (jcs::Index::SearchResult result : index.Search(arg)) {
       std::println("{}:{}:{}: {}",
