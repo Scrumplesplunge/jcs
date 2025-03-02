@@ -33,7 +33,13 @@ class Index {
   Index& operator=(Index&&) = delete;
 
   // Search for a term.
-  void Search(std::string_view term) const noexcept;
+  struct SearchResult {
+    std::string_view file_name;
+    int line, column;
+    std::string_view line_contents;
+  };
+
+  std::generator<SearchResult> Search(std::string_view term) const noexcept;
 
  private:
   std::vector<FileID> Candidates(std::string_view term) const noexcept;

@@ -142,36 +142,25 @@ void Index::Load(std::string_view path) {
   data_ = contents.subspan(p - contents.data());
 }
 
-void Index::Search(std::string_view term) const noexcept {
-  int matched_files = 0;
-  int matched_lines = 0;
+std::generator<Index::SearchResult> Index::Search(
+    std::string_view term) const noexcept {
   for (FileID file : Candidates(term)) {
     FileReadBuffer buffer;
     try {
       buffer = FileReadBuffer(GetFileName(file));
     } catch (std::exception&) {}
-    int matches_in_file = 0;
     int line_number = 0;
     for (auto line : std::ranges::views::split(buffer.Contents(), '\n')) {
       line_number++;
       const std::string_view line_contents(line);
-      if (!line_contents.contains(term)) continue;
-      if (matches_in_file == 0) matched_files++;
-      matches_in_file++;
-      matched_lines++;
-      if (matches_in_file == 1 && matched_files == kMaxMatchedFiles + 1) {
-        std::println("...");
-      } else if (matched_files <= kMaxMatchedFiles) {
-        if (matches_in_file == 1) std::println("{}", GetFileName(file));
-        if (matches_in_file == kMaxMatchesInFile + 1) {
-          std::println("          ...");
-        } else if (matches_in_file <= kMaxMatchesInFile) {
-          std::println("  {:4d}  {}", line_number, line_contents);
-        }
-      }
+      const auto column = line_contents.find(term);
+      if (column == line_contents.npos) continue;
+      co_yield {.file_name = GetFileName(file),
+                .line = line_number,
+                .column = int(column),
+                .line_contents = line_contents};
     }
   }
-  std::println("{} matched lines across {} files.", matched_lines, matched_files);
 }
 
 std::vector<Index::FileID> Index::Candidates(
@@ -198,7 +187,6 @@ std::vector<Index::FileID> Index::Candidates(
       candidates.resize(j);
     }
   }
-  std::println("{} candidate files.", candidates.size());
   return candidates;
 }
 

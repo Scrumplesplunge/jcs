@@ -19,14 +19,46 @@ int main(int argc, char* argv[]) {
   }
   jcs::Index index(".index");
   if (arg != "--interactive") {
-    index.Search(arg);
+    for (jcs::Index::SearchResult result : index.Search(arg)) {
+      std::println("{}:{}:{}: {}",
+                   result.file_name, result.line, result.column,
+                   result.line_contents);
+    }
     return 0;
   }
+  constexpr int kMaxFileMatches = 5;
+  constexpr int kMaxFiles = 5;
   while (true) {
     std::print("> ");
     std::string term;
     std::getline(std::cin, term);
-    index.Search(term);
+    int num_files = 0;
+    int num_file_matches = 0;
+    int num_matches = 0;
+    std::string_view previous_file;
+    for (jcs::Index::SearchResult result : index.Search(term)) {
+      num_matches++;
+      if (result.file_name == previous_file) {
+        if (num_files < kMaxFiles) {
+          if (num_file_matches < kMaxFileMatches) {
+            std::println("  {:4d}  {}", result.line, result.line_contents);
+          } else if (num_file_matches == kMaxFileMatches) {
+            std::println("  ...");
+          }
+        }
+        num_file_matches++;
+      } else {
+        if (num_files < kMaxFiles) {
+          std::println("{}", result.file_name);
+        } else if (num_files == kMaxFiles) {
+          std::println("...");
+        }
+        previous_file = result.file_name;
+        num_files++;
+        num_file_matches = 1;
+      }
+    }
+    std::println("{} matches across {} files.", num_matches, num_files);
   }
   return 0;
 }
