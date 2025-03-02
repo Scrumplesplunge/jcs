@@ -1,4 +1,6 @@
-﻿#include <cassert>
+﻿#include "serial.hpp"
+
+#include <cassert>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -8,6 +10,7 @@
 #include <mutex>
 #include <thread>
 
+namespace jcs {
 namespace {
 
 namespace fs = std::filesystem;
@@ -17,63 +20,6 @@ using std::chrono_literals::operator""ms;
 
 using FileID = std::uint32_t;
 constexpr int kNumSnippets = 1 << 16;  // Matches the range of Hash().
-
-template <typename T>
-struct Serial;
-
-template <>
-struct Serial<std::uint32_t> {
-  static std::uint32_t Read(std::istream& in) {
-    char bytes[4];
-    in.read(bytes, 4);
-    return std::uint32_t(std::uint8_t(bytes[0])) |
-           std::uint32_t(std::uint8_t(bytes[1])) << 8 |
-           std::uint32_t(std::uint8_t(bytes[2])) << 16 |
-           std::uint32_t(std::uint8_t(bytes[3])) << 24;
-  }
-
-  static void Write(std::ostream& out, std::uint32_t x) {
-    char bytes[4];
-    bytes[0] = std::uint8_t(x);
-    bytes[1] = std::uint8_t(x >> 8);
-    bytes[2] = std::uint8_t(x >> 16);
-    bytes[3] = std::uint8_t(x >> 24);
-    out.write(bytes, 4);
-  }
-};
-
-template <>
-struct Serial<std::string> {
-  static std::string Read(std::istream& in) {
-    const std::uint32_t length = Serial<std::uint32_t>::Read(in);
-    std::string value(length, '\0');
-    in.read(value.data(), length);
-    return value;
-  }
-
-  static void Write(std::ostream& out, std::string_view s) {
-    Serial<std::uint32_t>::Write(out, (std::uint32_t)s.size());
-    out.write(s.data(), s.size());
-  }
-};
-
-template <typename T>
-struct Serial<T[]> {
-  static std::vector<T> Read(std::istream& in) {
-    const auto length = Serial<std::uint32_t>::Read(in);
-    std::vector<T> values;
-    values.reserve(length);
-    for (std::uint32_t i = 0; i < length; i++) {
-      values.push_back(Serial<T>::Read(in));
-    }
-    return values;
-  }
-
-  static void Write(std::ostream& out, std::span<const T> values) {
-    Serial<std::uint32_t>::Write(out, (std::uint32_t)values.size());
-    for (const T& value : values) Serial<T>::Write(out, value);
-  }
-};
 
 class Database {
  public:
@@ -237,13 +183,14 @@ void BuildIndex() {
 }
 
 }  // namespace
+}  // namespace jcs
 
 int main(int argc, char* argv[]) {
   if (argc == 2 && argv[1] == std::string_view("--index")) {
-    BuildIndex();
+    jcs::BuildIndex();
     return 0;
   }
-  Database database;
+  jcs::Database database;
   database.Load(".index");
   while (true) {
     std::print("> ");

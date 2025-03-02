@@ -1,5 +1,8 @@
 ﻿cmake_minimum_required (VERSION 3.12)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Enable Hot Reload for MSVC compilers if supported.
 if (POLICY CMP0141)
   cmake_policy(SET CMP0141 NEW)
@@ -12,7 +15,8 @@ project ("simple-tags")
 
 find_package(asio CONFIG REQUIRED)
 
+add_library(serial "serial.cpp" "serial.hpp")
+
 # Add source to this project's executable.
-add_executable (simple-tags "simple-tags.cpp")
-set_property(TARGET simple-tags PROPERTY CXX_STANDARD 20)
-target_link_libraries(simple-tags asio::asio)
+add_executable(jcs "jcs.cpp")
+target_link_libraries(jcs serial)
