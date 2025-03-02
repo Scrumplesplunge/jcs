@@ -25,9 +25,8 @@ constexpr int kMaxMatchedFiles = 5;
 class Indexer {
  public:
   void IndexFile(const fs::path& file) {
-    std::ifstream stream(file);
-    const std::string contents(std::istreambuf_iterator<char>(stream), {});
-    if (!stream.good()) return;  // Skip bad files.
+    FileReadBuffer buffer(file.string());
+    const std::string_view contents = buffer.Contents();
 
     std::vector<bool> seen(kNumSnippets);
     for (auto snippet : std::ranges::views::slide(contents, 3)) {
@@ -51,7 +50,9 @@ class Indexer {
       while (true) {
         const int i = next.fetch_add(1, std::memory_order_relaxed);
         if (i >= files.size()) break;
-        IndexFile(files[i]);
+        try {
+          IndexFile(files[i]);
+        } catch (std::exception&) {}
         done.fetch_add(1, std::memory_order_relaxed);
       }
     };
@@ -135,15 +136,13 @@ void Index::Search(std::string_view term) const noexcept {
   int matched_files = 0;
   int matched_lines = 0;
   for (FileID file : Candidates(term)) {
-    std::ifstream stream(files_[file]);
-    const std::string contents(std::istreambuf_iterator<char>(stream), {});
-    if (!stream.good()) {
-      std::println(stderr, "Failed to re-open candidate file {}", files_[file]);
-      continue;
-    }
+    FileReadBuffer buffer;
+    try {
+      buffer = FileReadBuffer(files_[file]);
+    } catch (std::exception&) {}
     int matches_in_file = 0;
     int line_number = 0;
-    for (auto line : std::ranges::views::split(contents, '\n')) {
+    for (auto line : std::ranges::views::split(buffer.Contents(), '\n')) {
       line_number++;
       const std::string_view line_contents(line);
       if (!line_contents.contains(term)) continue;

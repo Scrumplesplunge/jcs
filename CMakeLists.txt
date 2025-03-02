@@ -13,10 +13,12 @@ add_compile_options("/FC")
 
 project ("simple-tags")
 
+add_library(buffer "buffer.cpp" "buffer.hpp")
+
 add_library(serial "serial.cpp" "serial.hpp")
 
 add_library(index "index.cpp" "index.hpp")
-target_link_libraries(index serial)
+target_link_libraries(index buffer serial)
 
 # Add source to this project's executable.
 add_executable(jcs "jcs.cpp")

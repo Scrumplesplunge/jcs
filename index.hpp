@@ -1,6 +1,8 @@
 #ifndef INDEX_HPP_
 #define INDEX_HPP_
 
+#include "buffer.hpp"
+
 #include <string>
 #include <string_view>
 #include <vector>
