@@ -103,7 +103,7 @@ class Indexer {
 
  private:
   static std::vector<fs::path> DiscoverFiles() {
-    const std::set<fs::path> allowed = {".cc", ".h", ".cpp"};
+    const std::set<fs::path> allowed = {".cc", ".h", ".cpp", ".hpp"};
     std::vector<fs::path> files;
     for (const fs::path& path : fs::recursive_directory_iterator(
              ".", fs::directory_options::skip_permission_denied)) {
