@@ -152,7 +152,10 @@ std::generator<Index::SearchResult> Index::Search(
     int line_number = 0;
     for (auto line : std::ranges::views::split(buffer.Contents(), '\n')) {
       line_number++;
-      const std::string_view line_contents(line);
+      std::string_view line_contents(line);
+      if (!line_contents.empty() && line_contents.back() == '\r') {
+        line_contents.remove_suffix(1);
+      }
       const auto column = line_contents.find(term);
       if (column == line_contents.npos) continue;
       co_yield {.file_name = GetFileName(file),
