@@ -52,13 +52,22 @@ std::unique_ptr<SnippetTable> MergeBatches(
     std::span<const IndexBatch> batches) {
   auto result = std::make_unique<SnippetTable>();
   const auto start = Clock::now();
-  for (int i = 0; i < kNumSnippets; i++) {
-    std::vector<Index::FileID>& out = (*result)[i];
-    for (const IndexBatch& batch : batches) {
-      out.append_range(batch.snippets[i]);
-    }
-    std::ranges::sort(out);
+  constexpr int kNumWorkers = 8;
+  std::vector<std::jthread> workers(kNumWorkers);
+  for (int w = 0; w < kNumWorkers; w++) {
+    workers[w] = std::jthread([&, w] {
+      const int batch_start = kNumSnippets * w / kNumWorkers;
+      const int batch_end = kNumSnippets * (w + 1) / kNumWorkers;
+      for (int i = batch_start; i < batch_end; i++) {
+        std::vector<Index::FileID>& out = (*result)[i];
+        for (const IndexBatch& batch : batches) {
+          out.append_range(batch.snippets[i]);
+        }
+        std::ranges::sort(out);
+      }
+    });
   }
+  for (auto& worker : workers) worker.join();
   const auto end = Clock::now();
   std::chrono::nanoseconds open_time = {};
   std::chrono::nanoseconds index_time = {};
