@@ -152,7 +152,16 @@ class Indexer {
  private:
   static std::vector<std::string> DiscoverFiles() {
     const auto start = Clock::now();
-    const std::set<fs::path> allowed = {".cc", ".h", ".cpp", ".hpp"};
+    const std::set<fs::path> allowed = {
+        ".cc",
+        ".cpp",
+        ".cs",
+        ".h",
+        ".hpp",
+        ".md",
+        ".py",
+        ".txt",
+    };
     std::vector<std::string> files;
     for (const fs::path& path : fs::recursive_directory_iterator(
              fs::current_path(),
