@@ -22,55 +22,92 @@ using std::chrono_literals::operator""s;
 constexpr int kMaxMatchesInFile = 5;
 constexpr int kMaxMatchedFiles = 5;
 
-class Indexer {
- public:
-  void IndexFile(const fs::path& file) {
-    FileReadBuffer buffer(file.string());
-    const std::string_view contents = buffer.Contents();
+using SnippetTable = std::array<std::vector<Index::FileID>, kNumSnippets>;
 
-    std::vector<bool> seen(kNumSnippets);
-    for (auto snippet : std::ranges::views::slide(contents, 3)) {
-      seen[Hash(std::string_view(snippet))] = true;
-    }
-
-    std::unique_lock lock(mutex_);
-    const Index::FileID file_id = (Index::FileID)files_.size();
-    files_.emplace_back(fs::canonical(file).string());
-
-    for (int id = 0; id < kNumSnippets; id++) {
-      if (seen[id]) snippets_[id].push_back(file_id);
-    }
+struct IndexBatch {
+  void IndexFile(Index::FileID file_id, std::string_view path) {
+    try {
+      const auto start = Clock::now();
+      const FileReadBuffer buffer(path);
+      const auto open = Clock::now();
+      std::vector<bool> seen(kNumSnippets);
+      for (auto snippet : std::ranges::views::slide(buffer.Contents(), 3)) {
+        seen[Hash(std::string_view(snippet))] = true;
+      }
+      for (int id = 0; id < kNumSnippets; id++) {
+        if (seen[id]) snippets[id].push_back(file_id);
+      }
+      const auto done = Clock::now();
+      open_time += open - start;
+      index_time += done - open;
+    } catch (std::exception&) {}  // Ignore I/O issues for files, skip them.
   }
 
+  SnippetTable snippets;
+  std::chrono::nanoseconds open_time = {};
+  std::chrono::nanoseconds index_time = {};
+};
+
+std::unique_ptr<SnippetTable> MergeBatches(
+    std::span<const IndexBatch> batches) {
+  auto result = std::make_unique<SnippetTable>();
+  const auto start = Clock::now();
+  for (int i = 0; i < kNumSnippets; i++) {
+    std::vector<Index::FileID>& out = (*result)[i];
+    for (const IndexBatch& batch : batches) {
+      out.append_range(batch.snippets[i]);
+    }
+    std::ranges::sort(out);
+  }
+  const auto end = Clock::now();
+  std::chrono::nanoseconds open_time = {};
+  std::chrono::nanoseconds index_time = {};
+  std::chrono::nanoseconds merge_time = end - start;
+  for (const IndexBatch& batch : batches) {
+    open_time += batch.open_time;
+    index_time += batch.index_time;
+  }
+  std::println("opening: {}", open_time);
+  std::println("indexing: {}", index_time);
+  std::println("merging: {}", merge_time);
+  return result;
+}
+
+class Indexer {
+ public:
   void IndexAll() {
-    const std::vector<fs::path> files = DiscoverFiles();
+    files_ = DiscoverFiles();
+    // Use multiple threads to index the files. Threads create separate indices
+    // which are merged at the end.
     std::atomic_int done = 0, next = 0;
-
-    const auto worker = [&] {
-      while (true) {
-        const int i = next.fetch_add(1, std::memory_order_relaxed);
-        if (i >= files.size()) break;
-        try {
-          IndexFile(files[i]);
-        } catch (std::exception&) {}
-        done.fetch_add(1, std::memory_order_relaxed);
-      }
-    };
-
-    std::vector<std::jthread> workers;
-    for (int i = 0; i < 8; i++) workers.emplace_back(worker);
-
+    constexpr int kNumWorkers = 8;
+    std::vector<IndexBatch> batches(kNumWorkers);
+    std::vector<std::jthread> workers(kNumWorkers);
+    for (int i = 0; i < kNumWorkers; i++) {
+      auto& batch = batches[i];
+      workers[i] = std::jthread([this, &batch, &done, &next] {
+        while (true) {
+          const Index::FileID file_id =
+              next.fetch_add(1, std::memory_order_relaxed);
+          if (file_id >= files_.size()) break;
+          batch.IndexFile(file_id, files_[file_id]);
+          done.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+    }
     while (true) {
       const int current = done.load(std::memory_order_relaxed);
-      if (current == files.size()) break;
-      std::println(
-          "{:7d}/{} {}", current, files.size(), files[current].string());
+      if (current == files_.size()) break;
+      std::println("{:7d}/{} {}", current, files_.size(), files_[current]);
       std::this_thread::sleep_for(1s);
     }
-    std::println("{:7d}/{} done.", files.size(), files.size());
+    std::println("{0:7d}/{0} done.", files_.size());
+    for (std::jthread& worker : workers) worker.join();
+    snippets_ = MergeBatches(batches);
   }
 
   void Save(std::string_view path) const {
+    const auto start = Clock::now();
     // Variable-length data.
     std::string data;
     // filename_offsets[i] is the offset of files[i] in data.
@@ -84,7 +121,7 @@ class Indexer {
         writer.WriteVarUint64(file.size());
         writer.Write(file);
       }
-      for (std::span<const Index::FileID> list : snippets_) {
+      for (std::span<const Index::FileID> list : *snippets_) {
         snippets_offsets.push_back(data.size());
         writer.WriteVarUint64(list.size());
         for (Index::FileID file : list) writer.WriteVarUint64(file);
@@ -99,22 +136,28 @@ class Indexer {
     out.exceptions(std::ostream::failbit | std::ostream::badbit);
     out.write(tables.data(), tables.size());
     out.write(data.data(), data.size());
+    const auto end = Clock::now();
+    std::println("saving: {}", end - start);
   }
 
  private:
-  static std::vector<fs::path> DiscoverFiles() {
+  static std::vector<std::string> DiscoverFiles() {
+    const auto start = Clock::now();
     const std::set<fs::path> allowed = {".cc", ".h", ".cpp", ".hpp"};
-    std::vector<fs::path> files;
+    std::vector<std::string> files;
     for (const fs::path& path : fs::recursive_directory_iterator(
-             ".", fs::directory_options::skip_permission_denied)) {
-      if (allowed.contains(path.extension())) files.push_back(path);
+             fs::current_path(),
+             fs::directory_options::skip_permission_denied)) {
+      if (allowed.contains(path.extension())) files.push_back(path.string());
     }
+    std::ranges::sort(files);
+    const auto end = Clock::now();
+    std::println("discovering: {}", end - start);
     return files;
   }
 
-  mutable std::mutex mutex_;
   std::vector<std::string> files_;
-  std::array<std::vector<Index::FileID>, kNumSnippets> snippets_;
+  std::unique_ptr<SnippetTable> snippets_;
 };
 
 }  // namespace
