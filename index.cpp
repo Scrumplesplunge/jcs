@@ -155,12 +155,13 @@ class Indexer {
     const std::set<fs::path> allowed = {
         ".cc",
         ".cpp",
-        ".cs",
         ".h",
         ".hpp",
+        ".cs",
+        ".js",
         ".md",
         ".py",
-        ".txt",
+        // ".txt",  // Need to figure out why uncommenting this causes a crash.
     };
     std::vector<std::string> files;
     for (const fs::path& path : fs::recursive_directory_iterator(
