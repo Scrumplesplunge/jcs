@@ -133,7 +133,13 @@ class Indexer {
       for (std::span<const Index::FileID> list : *snippets_) {
         snippets_offsets.push_back(data.size());
         writer.WriteVarUint64(list.size());
-        for (Index::FileID file : list) writer.WriteVarUint64(file);
+        Index::FileID previous = 0;
+        for (Index::FileID file : list) {
+          // This is always positive because the list is sorted.
+          const std::uint64_t delta = file - previous;
+          previous = file;
+          writer.WriteVarUint64(delta);
+        }
       }
     }
     std::string tables;
@@ -278,10 +284,12 @@ std::generator<Index::FileID> Index::GetSnippets(int id) const {
   const char* p = data_.data() + snippets_[id];
   std::uint64_t length;
   p = ReadVarUint64(p, length);
+  FileID file_id = 0;
   for (std::uint64_t i = 0; i < length; i++) {
     std::uint64_t value;
     p = ReadVarUint64(p, value);
-    co_yield Index::FileID(value);
+    file_id += FileID(value);
+    co_yield file_id;
   }
 }
 
