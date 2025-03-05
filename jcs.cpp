@@ -48,16 +48,7 @@ int main(int argc, char* argv[]) {
     std::string_view previous_file;
     for (jcs::Index::SearchResult result : index.Search(term)) {
       num_matches++;
-      if (result.file_name == previous_file) {
-        if (num_files < kMaxFiles) {
-          if (num_file_matches < kMaxFileMatches) {
-            std::println("  {:4d}  {}", result.line, result.line_contents);
-          } else if (num_file_matches == kMaxFileMatches) {
-            std::println("  ...");
-          }
-        }
-        num_file_matches++;
-      } else {
+      if (result.file_name != previous_file) {
         if (num_files < kMaxFiles) {
           std::println("{}", result.file_name);
         } else if (num_files == kMaxFiles) {
@@ -67,6 +58,14 @@ int main(int argc, char* argv[]) {
         num_files++;
         num_file_matches = 1;
       }
+      if (num_files < kMaxFiles) {
+        if (num_file_matches < kMaxFileMatches) {
+          std::println("  {:4d}  {}", result.line, result.line_contents);
+        } else if (num_file_matches == kMaxFileMatches) {
+          std::println("  ...");
+        }
+      }
+      num_file_matches++;
     }
     std::println("{} matches across {} files.", num_matches, num_files);
   }
