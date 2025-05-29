@@ -2,6 +2,7 @@
 
 #include "serial.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <filesystem>
@@ -9,6 +10,7 @@
 #include <print>
 #include <ranges>
 #include <set>
+#include <thread>
 
 namespace jcs {
 namespace {
@@ -28,7 +30,7 @@ struct IndexBatch {
   void IndexFile(Index::FileID file_id, std::string_view path) {
     try {
       const auto start = Clock::now();
-      const FileReadBuffer buffer(path);
+      const MemoryMappedFile buffer(path);
       const auto open = Clock::now();
       std::vector<bool> seen(kNumSnippets);
       for (auto snippet : std::ranges::views::slide(buffer.Contents(), 3)) {
@@ -208,7 +210,7 @@ int Hash(std::string_view term) noexcept {
 Index::Index(std::string_view path) { Load(path); }
 
 void Index::Load(std::string_view path) {
-  buffer_ = FileReadBuffer(path);
+  buffer_ = MemoryMappedFile(path);
   const std::span<const char> contents = buffer_.Contents();
   const char* p = contents.data();
   snippets_ = std::span<const std::uint64_t>(
@@ -225,9 +227,9 @@ void Index::Load(std::string_view path) {
 std::generator<Index::SearchResult> Index::Search(
     std::string_view term) const noexcept {
   for (FileID file : Candidates(term)) {
-    FileReadBuffer buffer;
+    MemoryMappedFile buffer;
     try {
-      buffer = FileReadBuffer(GetFileName(file));
+      buffer = MemoryMappedFile(GetFileName(file));
     } catch (std::exception&) {}
     int line_number = 0;
     for (auto line : std::ranges::views::split(buffer.Contents(), '\n')) {

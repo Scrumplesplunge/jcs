@@ -1,15 +1,32 @@
 ﻿{
-  "version": 2,
+  "version": 3,
   "configurePresets": [
     {
-      "name": "vcpkg",
+      "name": "common",
+      "hidden": true,
       "generator": "Ninja Multi-Config",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "windows",
+      "condition": {
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Windows"
+      },
+      "inherits": "common",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release",
-        "CMAKE_DEFAULT_BUILD_TYPE": "Debug",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_CXX_FLAGS": "/FC"
       }
+    },
+    {
+      "name": "linux",
+      "condition": {
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Linux"
+      },
+      "inherits": "common"
     }
   ]
 }

@@ -1,7 +1,7 @@
 #ifndef INDEX_HPP_
 #define INDEX_HPP_
 
-#include "buffer.hpp"
+#include "platform/memory_mapped_file.hpp"
 
 #include <generator>
 #include <string>
@@ -47,7 +47,7 @@ class Index {
   std::string_view GetFileName(FileID id) const;
   std::generator<FileID> GetSnippets(int id) const;
 
-  FileReadBuffer buffer_;
+  MemoryMappedFile buffer_;
   std::span<const std::uint64_t> snippets_;
   std::span<const std::uint64_t> files_;
   std::span<const char> data_;

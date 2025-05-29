@@ -1,4 +1,4 @@
-#include "buffer.hpp"
+#include "memory_mapped_file.hpp"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -28,7 +28,7 @@ class Handle {
 
 }  // namespace
 
-FileReadBuffer::FileReadBuffer(std::string_view path) {
+MemoryMappedFile::MemoryMappedFile(std::string_view path) {
   const std::string null_terminated_path(path);
   const Handle file(CreateFile(
       null_terminated_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
@@ -59,14 +59,15 @@ FileReadBuffer::FileReadBuffer(std::string_view path) {
   data_ = std::span<const char>(reinterpret_cast<const char*>(data), size);
 }
 
-FileReadBuffer::~FileReadBuffer() {
+MemoryMappedFile::~MemoryMappedFile() {
   if (data_.data()) UnmapViewOfFile(data_.data());
 }
 
-FileReadBuffer::FileReadBuffer(FileReadBuffer&& other)
+MemoryMappedFile::MemoryMappedFile(MemoryMappedFile&& other) noexcept
     : data_(std::exchange(other.data_, {})) {}
 
-FileReadBuffer& FileReadBuffer::operator=(FileReadBuffer&& other) {
+MemoryMappedFile& MemoryMappedFile::operator=(
+    MemoryMappedFile&& other) noexcept {
   if (data_.data()) UnmapViewOfFile(data_.data());
   data_ = std::exchange(other.data_, {});
   return *this;
