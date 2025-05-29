@@ -15,3 +15,5 @@ target_link_libraries(index memory_mapped_file serial)
 # Add source to this project's executable.
 add_executable(jcs "jcs.cpp")
 target_link_libraries(jcs index)
+
+install(TARGETS jcs)
