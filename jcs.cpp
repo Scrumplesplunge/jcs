@@ -6,18 +6,19 @@
 #include <string>
 #include <string_view>
 
+namespace fs = std::filesystem;
+
 int main(int argc, char* argv[]) {
   if (argc != 2) {
     std::println(stderr, "Usage: jcs [--index|--interactive|<search>]");
     return 1;
   }
   const std::string_view arg = argv[1];
-  if (arg == std::string_view("--index")) {
+  if (arg == "--index") {
     jcs::Build(".index");
     return 0;
   }
   // Search for an index file.
-  namespace fs = std::filesystem;
   fs::path directory = fs::current_path();
   const fs::path root = directory.root_path();
   while (!fs::exists(directory / ".index")) {
@@ -26,6 +27,12 @@ int main(int argc, char* argv[]) {
       return 1;
     }
     directory = directory.parent_path();
+  }
+  if (arg == "--update") {
+    std::println("Updating {}...", fs::absolute(directory / ".index").string());
+    fs::current_path(directory);
+    jcs::Build(".index");
+    return 0;
   }
   jcs::Index index((directory / ".index").string());
   if (arg != "--interactive") {
