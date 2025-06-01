@@ -26,6 +26,10 @@ constexpr int kMaxMatchedFiles = 5;
 
 using SnippetTable = std::array<std::vector<Index::FileID>, kNumSnippets>;
 
+std::chrono::milliseconds to_milliseconds(std::chrono::nanoseconds x) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(x);
+}
+
 struct IndexBatch {
   void IndexFile(Index::FileID file_id, std::string_view path) {
     try {
@@ -78,9 +82,12 @@ std::unique_ptr<SnippetTable> MergeBatches(
     open_time += batch.open_time;
     index_time += batch.index_time;
   }
-  std::println("opening: {}", open_time);
-  std::println("indexing: {}", index_time);
-  std::println("merging: {}", merge_time);
+  constexpr auto to_milliseconds = [](auto x) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(x);
+  };
+  std::println("opening: {}", to_milliseconds(open_time));
+  std::println("indexing: {}", to_milliseconds(index_time));
+  std::println("merging: {}", to_milliseconds(merge_time));
   return result;
 }
 
@@ -154,7 +161,7 @@ class Indexer {
     out.write(tables.data(), tables.size());
     out.write(data.data(), data.size());
     const auto end = Clock::now();
-    std::println("saving: {}", end - start);
+    std::println("saving: {}", to_milliseconds(end - start));
   }
 
  private:
@@ -191,7 +198,7 @@ class Indexer {
     }
     std::ranges::sort(files);
     const auto end = Clock::now();
-    std::println("discovering: {}", end - start);
+    std::println("discovering: {}", to_milliseconds(end - start));
     return files;
   }
 
