@@ -116,10 +116,12 @@ class Indexer {
     while (true) {
       const int current = done.load(std::memory_order_relaxed);
       if (current == files_.size()) break;
-      std::println("{:7d}/{} {}", current, files_.size(), files_[current]);
-      std::this_thread::sleep_for(1s);
+      std::print("\r{:7d}/{} {:3d}%", current, files_.size(),
+                 100 * current / files_.size());
+      std::fflush(stdout);
+      std::this_thread::sleep_for(100ms);
     }
-    std::println("{0:7d}/{0} done.", files_.size());
+    std::println("\r{0:7d}/{0} 100%", files_.size());
     for (std::jthread& worker : workers) worker.join();
     snippets_ = MergeBatches(batches);
   }
