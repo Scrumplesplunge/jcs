@@ -234,39 +234,37 @@ void Index::Load(std::string_view path) {
 }
 
 std::generator<Index::SearchResult> Index::Search(
-    std::string_view term) const noexcept {
-  for (FileID file : Candidates(term)) {
+    const Query& query) const noexcept {
+  for (FileID file : Candidates(query)) {
     MemoryMappedFile buffer;
     try {
       buffer = MemoryMappedFile(GetFileName(file));
     } catch (std::exception&) {}
-    int line_number = 0;
-    for (auto line : std::ranges::views::split(buffer.Contents(), '\n')) {
-      line_number++;
-      std::string_view line_contents(line);
-      if (!line_contents.empty() && line_contents.back() == '\r') {
-        line_contents.remove_suffix(1);
+    const std::string_view file_name = GetFileName(file);
+    const std::string_view text = buffer.Contents();
+    const char* const end = text.data() + text.size();
+    for (Query::Match match : query.Search(text)) {
+      const char* const line_start =
+          text.data() + match.start - (match.column - 1);
+      const char* line_end = text.data() + match.start;
+      while (line_end != end && *line_end != '\r' && *line_end != '\n') {
+        line_end++;
       }
-      const auto column = line_contents.find(term);
-      if (column == line_contents.npos) continue;
-      co_yield {.file_name = GetFileName(file),
-                .line = line_number,
-                .column = int(column + 1),
+      const std::string_view line_contents(line_start, line_end - line_start);
+      co_yield {.file_name = file_name,
+                .line = match.line,
+                .column = match.column,
                 .line_contents = line_contents};
     }
   }
 }
 
 std::vector<Index::FileID> Index::Candidates(
-    std::string_view term) const noexcept {
-  if (term.size() < 3) {
-    std::println(stderr, "Minimum search length is 3 characters.");
-    return {};
-  }
+    const Query& query) const noexcept {
   bool first = true;
   std::vector<FileID> candidates;
-  for (auto quad : std::ranges::views::slide(term, 3)) {
-    const int id = Hash(std::string_view(quad));
+  for (std::string_view trigram : query.Trigrams()) {
+    const int id = Hash(trigram);
     if (first) {
       first = false;
       candidates.assign_range(GetSnippets(id));

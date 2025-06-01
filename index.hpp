@@ -2,6 +2,7 @@
 #define INDEX_HPP_
 
 #include "platform/memory_mapped_file.hpp"
+#include "query.hpp"
 
 #include <generator>
 #include <string>
@@ -39,10 +40,10 @@ class Index {
     std::string_view line_contents;
   };
 
-  std::generator<SearchResult> Search(std::string_view term) const noexcept;
+  std::generator<SearchResult> Search(const Query& query) const noexcept;
 
  private:
-  std::vector<FileID> Candidates(std::string_view term) const noexcept;
+  std::vector<FileID> Candidates(const Query& query) const noexcept;
 
   std::string_view GetFileName(FileID id) const;
   std::generator<FileID> GetSnippets(int id) const;

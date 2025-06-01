@@ -1,4 +1,5 @@
 ﻿#include "index.hpp"
+#include "query.hpp"
 
 #include <filesystem>
 #include <iostream>
@@ -36,7 +37,7 @@ int main(int argc, char* argv[]) {
   }
   jcs::Index index((directory / ".index").string());
   if (arg != "--interactive") {
-    for (jcs::Index::SearchResult result : index.Search(arg)) {
+    for (jcs::Index::SearchResult result : index.Search(jcs::Query(arg))) {
       std::println("{}:{}:{}: {}",
                    result.file_name, result.line, result.column,
                    result.line_contents);
@@ -53,7 +54,7 @@ int main(int argc, char* argv[]) {
     int num_file_matches = 0;
     int num_matches = 0;
     std::string_view previous_file;
-    for (jcs::Index::SearchResult result : index.Search(term)) {
+    for (jcs::Index::SearchResult result : index.Search(jcs::Query(term))) {
       num_matches++;
       if (result.file_name != previous_file) {
         if (num_files < kMaxFiles) {
