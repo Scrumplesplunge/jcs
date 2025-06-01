@@ -37,7 +37,13 @@ int main(int argc, char* argv[]) {
   }
   jcs::Index index((directory / ".index").string());
   if (arg != "--interactive") {
-    for (jcs::Index::SearchResult result : index.Search(jcs::Query(arg))) {
+    const std::expected<jcs::Query, std::string> query =
+        jcs::Query::Compile(arg);
+    if (!query) {
+      std::println(stderr, "{}", query.error());
+      return 1;
+    }
+    for (jcs::Index::SearchResult result : index.Search(*query)) {
       std::println("{}:{}:{}: {}",
                    result.file_name, result.line, result.column,
                    result.line_contents);
@@ -50,11 +56,17 @@ int main(int argc, char* argv[]) {
     std::print("> ");
     std::string term;
     std::getline(std::cin, term);
+    const std::expected<jcs::Query, std::string> query =
+        jcs::Query::Compile(term);
+    if (!query) {
+      std::println("{}", query.error());
+      continue;
+    }
     int num_files = 0;
     int num_file_matches = 0;
     int num_matches = 0;
     std::string_view previous_file;
-    for (jcs::Index::SearchResult result : index.Search(jcs::Query(term))) {
+    for (jcs::Index::SearchResult result : index.Search(*query)) {
       num_matches++;
       if (result.file_name != previous_file) {
         if (num_files < kMaxFiles) {

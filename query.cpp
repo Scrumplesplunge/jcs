@@ -2,6 +2,10 @@
 
 namespace jcs {
 
+std::expected<Query, std::string> Query::Compile(std::string_view text) {
+  return Query(text);
+}
+
 Query::Query(std::string_view text) : term_(text) {}
 
 std::generator<std::string_view> Query::Trigrams() const {

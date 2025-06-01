@@ -2,6 +2,7 @@
 #define QUERY_HPP_
 
 #include <cstddef>
+#include <expected>
 #include <generator>
 #include <string>
 #include <string_view>
@@ -16,7 +17,7 @@ class Query {
     std::size_t end;
   };
 
-  explicit Query(std::string_view text);
+  static std::expected<Query, std::string> Compile(std::string_view text);
 
   // Generates a sequence of trigrams which must be present in any file which
   // contains a match.
@@ -26,6 +27,8 @@ class Query {
   std::generator<Match> Search(std::string_view text) const;
 
  private:
+  explicit Query(std::string_view text);
+
   std::string term_;
 };
 
