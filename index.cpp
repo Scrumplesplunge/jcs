@@ -175,23 +175,35 @@ class Indexer {
         ".js",  ".json", ".md",      ".py",   ".props", ".ps1", ".targets",
         ".tsv", ".txt",  ".vcxproj", ".xml",
     };
+    const std::set<fs::path> allowed_dot_directories = {".config"};
     std::vector<std::string> files;
     for (const fs::path& path : fs::recursive_directory_iterator(
              fs::current_path(),
              fs::directory_options::skip_permission_denied)) {
+      if (!allowed.contains(path.extension())) continue;
+      std::string path_string;
+      // Windows throws an exception when converting a non-ascii name to
+      // a string. We probably don't have enough non-ascii filenames for code
+      // that this matters much, so skip them.
+      //
+      // There isn't really a trivial fix for this. The easiest thing to do
+      // would be to use std::wstring for all filenames and only have to deal
+      // with casting those wide chars when reading or writing the index file.
+      // Ideally we would use UTF-8 but there is no UTF-8 overload for
+      // CreateFile, only the ascii one and the wide character one.
       try {
-        if (allowed.contains(path.extension())) files.push_back(path.string());
+        path_string = path.string();
       } catch (std::system_error&) {
-        // Windows throws an exception when converting a non-ascii name to a
-        // string. We probably don't have enough non-ascii filenames for code
-        // that this matters much, so skip them.
-        //
-        // There isn't really a trivial fix for this. The easiest thing to do
-        // would be to use std::wstring for all filenames and only have to deal
-        // with casting those wide chars when reading or writing the index file.
-        // Ideally we would use UTF-8 but there is no UTF-8 overload for
-        // CreateFile, only the ascii one and the wide character one.
+        continue;
       }
+      const auto is_allowed_directory = [&](const fs::path& directory) {
+        const std::string d = directory.string();
+        return !d.starts_with(".") || allowed_dot_directories.contains(d);
+      };
+      if (!std::ranges::all_of(path.parent_path(), is_allowed_directory)) {
+        continue;
+      }
+      files.push_back(std::move(path_string));
     }
     std::ranges::sort(files);
     const auto end = Clock::now();
