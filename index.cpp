@@ -279,6 +279,15 @@ std::vector<Index::FileID> Index::Candidates(
       candidates.resize(j);
     }
   }
+  // Sort candidates by the length of the shared common path prefix with the
+  // current working directory.
+  const fs::path here = fs::current_path();
+  auto distance = [this, here](FileID id) -> int {
+    const fs::path path = GetFileName(id);
+    auto [l, r] = std::ranges::mismatch(path, here);
+    return std::distance(path.begin(), l);
+  };
+  std::ranges::stable_sort(candidates, std::greater<>(), distance);
   return candidates;
 }
 
