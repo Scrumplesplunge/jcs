@@ -13,6 +13,7 @@ namespace fs = std::filesystem;
 
 struct Options {
   enum class Mode {
+    kInfo,         // Enabled by `--info`. Expects no args.
     kIndex,        // Enabled by `--index`. Expects no args.
     kUpdate,       // Enabled by `--update`. Expects no args.
     kInteractive,  // Enabled by `--interactive` (or nothing). Expects no args.
@@ -38,6 +39,8 @@ Options ParseOptions(int argc, char* argv[]) {
     if (ignore || !arg.starts_with("--")) argv[num_args++] = argv[i];
     if (arg == "--") {
       ignore = true;
+    } else if (arg == "--info") {
+      set_mode(Options::Mode::kInfo);
     } else if (arg == "--index") {
       set_mode(Options::Mode::kIndex);
     } else if (arg == "--update") {
@@ -48,12 +51,17 @@ Options ParseOptions(int argc, char* argv[]) {
   }
   const auto args = std::span<char*>(argv, num_args).subspan(1);
   if (mode) {
-    int expected_args;
+    std::size_t expected_args;
     switch (*mode) {
+      case Options::Mode::kInfo:
       case Options::Mode::kIndex:
       case Options::Mode::kUpdate:
       case Options::Mode::kInteractive:
         expected_args = 0;
+        break;
+      case Options::Mode::kSearch:
+        expected_args = 1;
+        break;
     }
     if (args.size() != expected_args) {
       std::println(stderr, "Got {} arguments when {} were expected.",
@@ -162,6 +170,14 @@ int Search(std::string_view arg) {
 int main(int argc, char* argv[]) {
   const Options options = ParseOptions(argc, argv);
   switch (options.mode) {
+    case Options::Mode::kInfo:
+      if (std::optional<fs::path> index_path = FindIndex()) {
+        std::println("Using {}", index_path->string());
+        return 0;
+      } else {
+        std::println("No .index file found.");
+        return 1;
+      }
     case Options::Mode::kIndex:
       jcs::Build(".index");
       return 0;
