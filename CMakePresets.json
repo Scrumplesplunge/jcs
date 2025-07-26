@@ -26,7 +26,10 @@
         "type": "equals",
         "rhs": "Linux"
       },
-      "inherits": "common"
+      "inherits": "common",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "-Wall -Wextra -pedantic"
+      }
     }
   ]
 }
