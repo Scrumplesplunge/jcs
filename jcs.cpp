@@ -103,6 +103,10 @@ int RunInteractive() {
     std::print("> ");
     std::string term;
     std::getline(std::cin, term);
+    if (std::cin.eof()) {
+      std::cout << '\n';
+      return 0;
+    }
     const std::expected<jcs::Query, std::string> query =
         jcs::Query::Compile(term);
     if (!query) {
