@@ -1,5 +1,4 @@
 ﻿#include "index.hpp"
-#include "query.hpp"
 
 #include <filesystem>
 #include <iostream>
@@ -109,23 +108,17 @@ int RunInteractive() {
   constexpr int kMaxFiles = 5;
   while (true) {
     std::print("> ");
-    std::string term;
-    std::getline(std::cin, term);
+    std::string query;
+    std::getline(std::cin, query);
     if (std::cin.eof()) {
       std::cout << '\n';
       return 0;
-    }
-    const std::expected<jcs::Query, std::string> query =
-        jcs::Query::Compile(term);
-    if (!query) {
-      std::println("{}", query.error());
-      continue;
     }
     int num_files = 0;
     int num_file_matches = 0;
     int num_matches = 0;
     std::string_view previous_file;
-    for (jcs::Index::SearchResult result : index.Search(*query)) {
+    for (jcs::Index::SearchResult result : index.Search(query)) {
       num_matches++;
       if (result.file_name != previous_file) {
         if (num_files < kMaxFiles) {
@@ -150,14 +143,9 @@ int RunInteractive() {
   }
 }
 
-int Search(std::string_view arg) {
+int Search(std::string_view query) {
   const jcs::Index index = LoadIndex();
-  const std::expected<jcs::Query, std::string> query = jcs::Query::Compile(arg);
-  if (!query) {
-    std::println(stderr, "{}", query.error());
-    return 1;
-  }
-  for (jcs::Index::SearchResult result : index.Search(*query)) {
+  for (jcs::Index::SearchResult result : index.Search(query)) {
     std::println("{}:{}:{}: {}",
                  result.file_name, result.line, result.column,
                  result.line_contents);

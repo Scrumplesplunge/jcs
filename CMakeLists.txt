@@ -9,13 +9,11 @@ add_subdirectory("platform")
 
 add_library(serial "serial.cpp" "serial.hpp")
 
-add_library(query "query.cpp" "query.hpp")
-
 add_library(index "index.cpp" "index.hpp")
-target_link_libraries(index memory_mapped_file query serial)
+target_link_libraries(index memory_mapped_file serial)
 
 # Add source to this project's executable.
 add_executable(jcs "jcs.cpp")
-target_link_libraries(jcs index query)
+target_link_libraries(jcs index)
 
 install(TARGETS jcs)

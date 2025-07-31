@@ -241,49 +241,94 @@ void Index::Load(std::string_view path) {
 }
 
 std::generator<Index::SearchResult> Index::Search(
-    const Query& query) const noexcept {
-  for (FileID file : Candidates(query)) {
+    std::string_view query) const noexcept {
+  const std::vector<std::string> terms = Terms(query);
+  if (terms.empty()) co_return;
+  for (FileID file : Candidates(terms)) {
     MemoryMappedFile buffer;
     try {
       buffer = MemoryMappedFile(GetFileName(file));
     } catch (std::exception&) {}
     const std::string_view file_name = GetFileName(file);
-    const std::string_view text = buffer.Contents();
-    const char* const end = text.data() + text.size();
-    for (Query::Match match : query.Search(text)) {
-      const char* const line_start =
-          text.data() + match.start - (match.column - 1);
-      const char* line_end = text.data() + match.start;
-      while (line_end != end && *line_end != '\r' && *line_end != '\n') {
-        line_end++;
+    std::string_view text = buffer.Contents();
+    int line = 0;
+    while (!text.empty()) {
+      line++;
+      // Consume a line from the input.
+      auto line_end = text.find('\n');
+      std::string_view line_contents;
+      if (line_end == text.npos) {
+        line_contents = text;
+        text = "";
+      } else {
+        line_contents = text.substr(0, line_end);
+        text.remove_prefix(line_end + 1);
       }
-      const std::string_view line_contents(line_start, line_end - line_start);
-      co_yield {.file_name = file_name,
-                .line = match.line,
-                .column = match.column,
-                .line_contents = line_contents};
+      // Remove a trailing '\r' which might be present for Windows files.
+      if (!line_contents.empty() && line_contents.back() == '\r') {
+        line_contents.remove_suffix(1);
+      }
+      // Check for a match.
+      const auto column = line_contents.find(terms.front());
+      if (column == line_contents.npos) continue;
+      std::size_t i = column + terms.front().size();
+      bool match = true;
+      for (std::string_view term : std::span(terms).subspan(1)) {
+        const auto c = line_contents.find(term, i);
+        if (c == line_contents.npos) {
+          match = false;
+          break;
+        }
+        i = c + term.size();
+      }
+      if (match) {
+        co_yield {.file_name = file_name,
+                  .line = line,
+                  .column = static_cast<int>(column),
+                  .line_contents = line_contents};
+      }
     }
   }
 }
 
+std::vector<std::string> Index::Terms(std::string_view query) noexcept {
+  std::vector<std::string> terms;
+  const char* i = query.data();
+  const char* const end = i + query.size();
+  while (true) {
+    while (i != end && *i == ' ') i++;
+    if (i == end) break;
+    std::string& term = terms.emplace_back();
+    while (true) {
+      if (i == end || *i == ' ') break;
+      if (*i == '\\' && i + 1 != end) i++;
+      term.push_back(*i);
+      i++;
+    }
+  }
+  return terms;
+}
+
 std::vector<Index::FileID> Index::Candidates(
-    const Query& query) const noexcept {
+    std::span<const std::string> terms) const noexcept {
   bool first = true;
   std::vector<FileID> candidates;
-  for (std::string_view trigram : query.Trigrams()) {
-    const int id = Hash(trigram);
-    if (first) {
-      first = false;
-      candidates.assign_range(GetSnippets(id));
-    } else {
-      int i = 0, j = 0;
-      const int n = (int)candidates.size();
-      for (FileID f : GetSnippets(id)) {
-        if (i == n) break;
-        while (i < n && candidates[i] < f) i++;
-        if (i < n && candidates[i] == f) candidates[j++] = candidates[i++];
+  for (std::string_view term : terms) {
+    for (auto trigram : std::ranges::views::slide(term, 3)) {
+      const int id = Hash(std::string_view(trigram));
+      if (first) {
+        first = false;
+        candidates.assign_range(GetSnippets(id));
+      } else {
+        int i = 0, j = 0;
+        const int n = (int)candidates.size();
+        for (FileID f : GetSnippets(id)) {
+          if (i == n) break;
+          while (i < n && candidates[i] < f) i++;
+          if (i < n && candidates[i] == f) candidates[j++] = candidates[i++];
+        }
+        candidates.resize(j);
       }
-      candidates.resize(j);
     }
   }
   // Sort candidates by the length of the shared common path prefix with the
